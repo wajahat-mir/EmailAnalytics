@@ -7,6 +7,7 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Newtonsoft.Json;
+using Microsoft.WindowsAzure.Storage.Table;
 
 namespace EmailAnalytics
 {
@@ -15,6 +16,7 @@ namespace EmailAnalytics
         [FunctionName("Email")]
         public static async Task<IActionResult> Run(
             [HttpTrigger(AuthorizationLevel.Function,"post", Route = null)] HttpRequest req,
+            [Table("Email")]CloudTable tableout,
             ILogger log)
         {
             log.LogInformation("C# HTTP trigger function processed a request.");
@@ -25,18 +27,27 @@ namespace EmailAnalytics
             if (emailData == null)
                 return (ActionResult)new BadRequestObjectResult("Please pass the email data");
 
+            emailData.PartitionKey = emailData.From;
+            emailData.RowKey = emailData.To + "_" + emailData.DateSent;
+
+            try
+            {
+                var operation = TableOperation.Insert(emailData);
+                await tableout.ExecuteAsync(operation);
+            }
+            catch(Exception ex)
+            {
+                if(ex.Message.ToLower() == "conflict")
+                    return (ActionResult)new BadRequestObjectResult("Conflict - identical data already exists");
+            }
+
             return (ActionResult)new OkResult();
         }
 
-        public class Email
+        public class Email : TableEntity
         {
             public string From { get; set; }
             public string To { get; set; }
-            public Data data { get; set; }
-        }
-
-        public class Data
-        {
             public string Subject { get; set; }
             public string CC { get; set; }
             public string BCC { get; set; }
